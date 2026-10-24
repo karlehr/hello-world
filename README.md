@@ -20,7 +20,7 @@ A single-purpose iPhone web app that decides who gets the front seat. Tap **Spin
 ## Deploy (GitHub Pages)
 
 1. Push to GitHub.
-2. Repo **Settings → Pages → Build and deployment**: Source *Deploy from a branch*, branch **`master`**, folder **`/ (root)`**. Save.
+2. Repo **Settings → Pages → Build and deployment**: set Source to **GitHub Actions**. The workflow in `.github/workflows/pages.yml` then publishes the app on every push to `master` (it can also be run by hand from the Actions tab).
 3. After a minute the app is live at `https://karlehr.github.io/hello-world/`.
 
 ### Shipping an update
