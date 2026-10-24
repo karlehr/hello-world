@@ -195,9 +195,8 @@
   // Sound (synthesized; silently does nothing if unavailable)
   // ---------------------------------------------------------------------------
 
-  // Two looping noise beds (ball rolling on the track, wheel rumble) whose
-  // level and pitch follow the motion, plus short filtered-noise "clacks" for
-  // the ball hitting diamonds, frets and pockets.
+  // A faint noise whirr plus short filtered-noise "clacks": light ticks while
+  // the ball rolls, and louder hits on diamonds, frets and pockets.
 
   let audio = null;
   let sfx = null;
@@ -230,16 +229,8 @@
   function buildSoundGraph(ac) {
     const len = ac.sampleRate * 2;
     const white = ac.createBuffer(1, len, ac.sampleRate);
-    const brown = ac.createBuffer(1, len, ac.sampleRate);
     const w = white.getChannelData(0);
-    const b = brown.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < len; i++) {
-      const r = Math.random() * 2 - 1; // audio noise only, not used for outcomes
-      w[i] = r;
-      last = (last + 0.02 * r) / 1.02;
-      b[i] = last * 3.5;
-    }
+    for (let i = 0; i < len; i++) w[i] = Math.random() * 2 - 1; // audio noise only, not used for outcomes
 
     const master = ac.createDynamicsCompressor();
     master.connect(ac.destination);
@@ -258,39 +249,24 @@
       src.start();
       return { filter, gain };
     };
-    const roll = bed(white, 'bandpass', 1500, 0.9);
-    const rumble = bed(brown, 'lowpass', 250, 0.7);
+    // Only a faint, high whirr under the ball; the rolling is carried by ticks.
+    const roll = bed(white, 'bandpass', 3500, 1.5);
 
-    // Tremolo on the rolling bed gives it the bumpy "whirr" of a ball on wood.
-    const lfo = ac.createOscillator();
-    const lfoDepth = ac.createGain();
-    lfo.frequency.value = 8;
-    lfoDepth.gain.value = 0;
-    lfo.connect(lfoDepth).connect(roll.gain.gain);
-    lfo.start();
-
-    return { ac, master, white, roll, rumble, lfo, lfoDepth };
+    return { ac, master, white, roll };
   }
 
-  // ballSpeed / wheelSpeed in rad/s; rolling = ball is free on the track.
-  function updateSound(ballSpeed, wheelSpeed, rolling) {
+  // ballSpeed in rad/s; rolling = ball is free on the track.
+  function updateSound(ballSpeed, rolling) {
     if (!sfx) return;
     const now = sfx.ac.currentTime;
     const b = rolling ? Math.min(1, ballSpeed / 14) : 0;
-    const wv = Math.min(1, wheelSpeed / 14);
-    const level = 0.5 * Math.pow(b, 0.7);
-    sfx.roll.gain.gain.setTargetAtTime(level, now, 0.06);
-    sfx.roll.filter.frequency.setTargetAtTime(500 + 2500 * b, now, 0.06);
-    sfx.lfoDepth.gain.setTargetAtTime(level * 0.4, now, 0.06);
-    sfx.lfo.frequency.setTargetAtTime(4 + 18 * b, now, 0.1);
-    sfx.rumble.gain.gain.setTargetAtTime(0.35 * wv, now, 0.08);
-    sfx.rumble.filter.frequency.setTargetAtTime(120 + 300 * wv, now, 0.08);
+    sfx.roll.gain.gain.setTargetAtTime(0.06 * b, now, 0.15);
+    sfx.roll.filter.frequency.setTargetAtTime(2500 + 2000 * b, now, 0.1);
   }
 
   function silenceBeds() {
     if (!sfx) return;
-    const now = sfx.ac.currentTime;
-    [sfx.roll.gain.gain, sfx.rumble.gain.gain, sfx.lfoDepth.gain].forEach((p) => p.setTargetAtTime(0, now, 0.15));
+    sfx.roll.gain.gain.setTargetAtTime(0, sfx.ac.currentTime, 0.15);
   }
 
   function clack(vol, freq, dur = 0.035, delay = 0) {
@@ -558,8 +534,8 @@
 
     let t0 = null;
     let prevT = 0;
-    let prevWheel = wheelAngle;
     let prevBall = null;
+    let rollPhase = 0;
     let prevFret = null;
     let lastFretClick = 0;
     let hopIndex = -1;
@@ -574,12 +550,19 @@
       ball = ballAt(plan, t, wheelAngle);
       draw();
 
-      // Rolling + rumble beds follow the actual motion.
+      // Rolling: faint whirr plus light ticks whose rate follows the ball's speed.
       const rolling = t >= BALL_DROP && t < plan.tLand;
       if (dt > 0) {
-        const wheelSpeed = Math.abs(wheelAngle - prevWheel) / dt;
         const ballSpeed = ball && prevBall ? Math.abs(ball.angle - prevBall.angle) / dt : 0;
-        updateSound(ballSpeed, wheelSpeed, rolling);
+        updateSound(ballSpeed, rolling);
+        if (rolling) {
+          rollPhase += ballSpeed * dt * 1.6;
+          if (rollPhase >= 1) {
+            rollPhase %= 1;
+            const b = Math.min(1, ballSpeed / 14);
+            clack(jitter(0.12 + 0.1 * b, 0.06), jitter(5200, 1200), 0.018);
+          }
+        }
       }
 
       // Diamond hits: random rattles as the ball spirals in off the rim.
@@ -626,7 +609,6 @@
       }
 
       prevT = t;
-      prevWheel = wheelAngle;
       prevBall = ball;
 
       if (t < plan.end) {
