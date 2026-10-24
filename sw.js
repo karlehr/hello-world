@@ -1,5 +1,5 @@
 // Bump CACHE_VERSION on every deploy so installed copies pick up the new files.
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `front-seat-${CACHE_VERSION}`;
 
 const ASSETS = [

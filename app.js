@@ -195,33 +195,135 @@
   // Sound (synthesized; silently does nothing if unavailable)
   // ---------------------------------------------------------------------------
 
+  // Two looping noise beds (ball rolling on the track, wheel rumble) whose
+  // level and pitch follow the motion, plus short filtered-noise "clacks" for
+  // the ball hitting diamonds, frets and pockets.
+
   let audio = null;
+  let sfx = null;
+  let suspendTimer = null;
 
   function unlockAudio() {
+    clearTimeout(suspendTimer);
     try {
       if (!audio) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (AC) audio = new AC();
+        if (!AC) return;
+        audio = new AC();
+        sfx = buildSoundGraph(audio);
       }
-      if (audio && audio.state === 'suspended') audio.resume();
+      if (audio.state !== 'running') audio.resume();
     } catch (e) {
       audio = null;
+      sfx = null;
     }
   }
 
-  function click(freq, gain, dur) {
-    if (!audio || audio.state !== 'running') return;
-    const t = audio.currentTime;
-    const osc = audio.createOscillator();
-    const amp = audio.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(freq, t);
-    amp.gain.setValueAtTime(gain, t);
-    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(amp).connect(audio.destination);
+  // Let the context sleep between spins so the noise loops don't burn battery.
+  function sleepAudio() {
+    clearTimeout(suspendTimer);
+    suspendTimer = setTimeout(() => {
+      if (audio && audio.state === 'running') audio.suspend();
+    }, 2000);
+  }
+
+  function buildSoundGraph(ac) {
+    const len = ac.sampleRate * 2;
+    const white = ac.createBuffer(1, len, ac.sampleRate);
+    const brown = ac.createBuffer(1, len, ac.sampleRate);
+    const w = white.getChannelData(0);
+    const b = brown.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const r = Math.random() * 2 - 1; // audio noise only, not used for outcomes
+      w[i] = r;
+      last = (last + 0.02 * r) / 1.02;
+      b[i] = last * 3.5;
+    }
+
+    const master = ac.createDynamicsCompressor();
+    master.connect(ac.destination);
+
+    const bed = (buffer, type, freq, q) => {
+      const src = ac.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const filter = ac.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = freq;
+      filter.Q.value = q;
+      const gain = ac.createGain();
+      gain.gain.value = 0;
+      src.connect(filter).connect(gain).connect(master);
+      src.start();
+      return { filter, gain };
+    };
+    const roll = bed(white, 'bandpass', 1500, 0.9);
+    const rumble = bed(brown, 'lowpass', 250, 0.7);
+
+    // Tremolo on the rolling bed gives it the bumpy "whirr" of a ball on wood.
+    const lfo = ac.createOscillator();
+    const lfoDepth = ac.createGain();
+    lfo.frequency.value = 8;
+    lfoDepth.gain.value = 0;
+    lfo.connect(lfoDepth).connect(roll.gain.gain);
+    lfo.start();
+
+    return { ac, master, white, roll, rumble, lfo, lfoDepth };
+  }
+
+  // ballSpeed / wheelSpeed in rad/s; rolling = ball is free on the track.
+  function updateSound(ballSpeed, wheelSpeed, rolling) {
+    if (!sfx) return;
+    const now = sfx.ac.currentTime;
+    const b = rolling ? Math.min(1, ballSpeed / 14) : 0;
+    const wv = Math.min(1, wheelSpeed / 14);
+    const level = 0.5 * Math.pow(b, 0.7);
+    sfx.roll.gain.gain.setTargetAtTime(level, now, 0.06);
+    sfx.roll.filter.frequency.setTargetAtTime(500 + 2500 * b, now, 0.06);
+    sfx.lfoDepth.gain.setTargetAtTime(level * 0.4, now, 0.06);
+    sfx.lfo.frequency.setTargetAtTime(4 + 18 * b, now, 0.1);
+    sfx.rumble.gain.gain.setTargetAtTime(0.35 * wv, now, 0.08);
+    sfx.rumble.filter.frequency.setTargetAtTime(120 + 300 * wv, now, 0.08);
+  }
+
+  function silenceBeds() {
+    if (!sfx) return;
+    const now = sfx.ac.currentTime;
+    [sfx.roll.gain.gain, sfx.rumble.gain.gain, sfx.lfoDepth.gain].forEach((p) => p.setTargetAtTime(0, now, 0.15));
+  }
+
+  function clack(vol, freq, dur = 0.035, delay = 0) {
+    if (!sfx || sfx.ac.state !== 'running') return;
+    const ac = sfx.ac;
+    const t = ac.currentTime + delay;
+
+    const src = ac.createBufferSource();
+    src.buffer = sfx.white;
+    const bp = ac.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq;
+    bp.Q.value = 6;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(g).connect(sfx.master);
+    src.start(t, Math.random() * 1.5);
+    src.stop(t + dur + 0.02);
+
+    // A short pitched "tok" gives the click some body.
+    const osc = ac.createOscillator();
+    const og = ac.createGain();
+    osc.frequency.value = freq * 0.45;
+    og.gain.setValueAtTime(vol * 0.12, t);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.8);
+    osc.connect(og).connect(sfx.master);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
+
+  const jitter = (base, spread) => base + (Math.random() - 0.5) * spread;
 
   // ---------------------------------------------------------------------------
   // Rendering
@@ -455,29 +557,49 @@
     ball = null;
 
     let t0 = null;
-    let lastTickPocket = Math.floor(plan.startAngle / SLICE);
-    let lastTickTime = 0;
+    let prevT = 0;
+    let prevWheel = wheelAngle;
+    let prevBall = null;
+    let prevFret = null;
+    let lastFretClick = 0;
     let hopIndex = -1;
+    const hopsTotal = plan.hopDurations.reduce((a, b) => a + b, 0);
 
     const frame = (now) => {
       if (t0 === null) t0 = now;
       const t = Math.min((now - t0) / 1000, plan.end);
+      const dt = t - prevT;
 
       wheelAngle = wheelAngleAt(plan, t);
       ball = ballAt(plan, t, wheelAngle);
       draw();
 
-      // Tick as separators pass the pointer (throttled).
-      const pocket = Math.floor(wheelAngle / SLICE);
-      if (pocket !== lastTickPocket) {
-        lastTickPocket = pocket;
-        if (now - lastTickTime > 45) {
-          lastTickTime = now;
-          click(2200, 0.035, 0.025);
-        }
+      // Rolling + rumble beds follow the actual motion.
+      const rolling = t >= BALL_DROP && t < plan.tLand;
+      if (dt > 0) {
+        const wheelSpeed = Math.abs(wheelAngle - prevWheel) / dt;
+        const ballSpeed = ball && prevBall ? Math.abs(ball.angle - prevBall.angle) / dt : 0;
+        updateSound(ballSpeed, wheelSpeed, rolling);
       }
 
-      // Clack on landing and on each hop.
+      // Diamond hits: random rattles as the ball spirals in off the rim.
+      if (rolling && dt > 0) {
+        const s = (t - BALL_DROP) / (plan.tLand - BALL_DROP);
+        const rate = 7 * smoothstep(0.45, 0.8, s) * (1 - 0.6 * smoothstep(0.85, 1, s));
+        if (Math.random() < rate * dt) clack(jitter(0.9, 0.6), jitter(3200, 1600), 0.04);
+      }
+
+      // Fret clicks: ball skimming over the pocket dividers.
+      if (ball && ball.radius < GEO.pocketOuter) {
+        const fret = Math.floor((ball.angle - wheelAngle) / SLICE);
+        if (prevFret !== null && fret !== prevFret && now - lastFretClick > 25) {
+          lastFretClick = now;
+          clack(jitter(0.5, 0.2), jitter(3800, 600), 0.025);
+        }
+        prevFret = fret;
+      }
+
+      // Drop into a pocket, hop over frets, settle.
       const local = t - plan.tLand;
       let phase = -1;
       if (local >= 0) {
@@ -487,15 +609,31 @@
           if (local >= acc) phase = j + 1;
           acc += plan.hopDurations[j];
         }
+        if (local >= plan.dropDur + hopsTotal) phase = plan.hopDurations.length + 1;
       }
       if (phase > hopIndex) {
         hopIndex = phase;
-        click(phase === 0 ? 900 : 1100, 0.09, 0.06);
+        if (phase === 0) {
+          clack(1.4, 2000, 0.05);
+          clack(0.7, 2800, 0.035, 0.07);
+        } else if (phase <= plan.hopDurations.length) {
+          clack(0.9 * Math.pow(0.7, phase - 1), 3000, 0.035);
+        } else {
+          clack(0.8, 1800, 0.05);
+          clack(0.35, 2400, 0.03, 0.08);
+          clack(0.15, 2600, 0.025, 0.14);
+        }
       }
+
+      prevT = t;
+      prevWheel = wheelAngle;
+      prevBall = ball;
 
       if (t < plan.end) {
         requestAnimationFrame(frame);
       } else {
+        silenceBeds();
+        sleepAudio();
         wheelAngle = mod(wheelAngle, TAU);
         if (navigator.vibrate) {
           try { navigator.vibrate(30); } catch (e) { /* ignore */ }
