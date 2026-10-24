@@ -1,0 +1,225 @@
+:root {
+  --bg: #f7f8fa;
+  --fg: #1d2733;
+  --muted: #5b6675;
+  --bezel: #2f3540;
+  --bezel-hi: #4a5260;
+  --track: #e6e9ee;
+  --track-shade: #cfd5dd;
+  --cone: #eef1f5;
+  --cone-shade: #c9d0d9;
+  --sep: #2a2f38;
+  --pointer: #1d2733;
+  --btn: #1d2733;
+  --btn-fg: #ffffff;
+  --heidi: #A7D8F0;
+  --hanne: #F7C6D9;
+  --ink: #1d2733;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --fg: #eef1f5;
+    --muted: #9aa4b2;
+    --bezel: #05070a;
+    --bezel-hi: #2a2f38;
+    --track: #1f242c;
+    --track-shade: #14181e;
+    --cone: #2a3039;
+    --cone-shade: #171b21;
+    --sep: #0b0d10;
+    --pointer: #eef1f5;
+    --btn: #eef1f5;
+    --btn-fg: #111418;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding:
+    calc(env(safe-area-inset-top) + 12px)
+    calc(env(safe-area-inset-right) + 16px)
+    calc(env(safe-area-inset-bottom) + 20px)
+    calc(env(safe-area-inset-left) + 16px);
+}
+
+header {
+  text-align: center;
+}
+
+h1 {
+  margin: 4px 0 8px;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  cursor: default;
+}
+
+.legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--sep);
+}
+
+.swatch-heidi { background: var(--heidi); }
+.swatch-hanne { background: var(--hanne); }
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  display: block;
+}
+
+footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.btn {
+  width: 100%;
+  max-width: 420px;
+  padding: 18px 24px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--btn);
+  color: var(--btn-fg);
+  font: inherit;
+  font-size: 26px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.08s ease, opacity 0.2s ease;
+}
+
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { opacity: 0.35; cursor: default; }
+
+.btn-dark {
+  background: var(--ink);
+  color: #ffffff;
+}
+
+.result {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(env(safe-area-inset-top) + 24px)
+    calc(env(safe-area-inset-right) + 20px)
+    calc(env(safe-area-inset-bottom) + 24px)
+    calc(env(safe-area-inset-left) + 20px);
+  background: rgba(10, 12, 16, 0.55);
+  animation: fade-in 0.25s ease-out;
+}
+
+.result[hidden] { display: none; }
+
+.result-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 36px 24px 24px;
+  border-radius: 28px;
+  background: var(--heidi);
+  color: var(--ink);
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  animation: pop-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.25);
+}
+
+.result-card.is-hanne { background: var(--hanne); }
+
+.result-kicker {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.result-name {
+  margin: 8px 0 28px;
+  font-size: clamp(72px, 24vw, 120px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pop-in {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
